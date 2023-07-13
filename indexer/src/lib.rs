@@ -2,7 +2,7 @@ use web3::futures::StreamExt;
 use web3::{transports::WebSocket, Web3};
 use web3::types::{BlockNumber, BlockId, U64};
 use web3::types::FilterBuilder;
-
+use tokio::runtime::Handle;
 mod constants;
 mod objects;
 mod db;
@@ -43,36 +43,57 @@ pub struct SlotIndexer {
 
 impl SlotIndexer {
 
-    async fn new(addr: String, filter: Option<Filter>) -> Self {
+     fn new(addr: String, filter: Option<Filter>) -> Self {
 
     }
 
-    async fn start_listener(&mut self) -> Result<(), BackendError> {
+    fn start_listener(&mut self) -> Result<(), BackendError> {
 
-        let client = Client::new();
-        let response = client
-            .get(SSE_HTTP_URL)
-            .send()
-            .await?;
+        Handle.current().spawn(async {
 
-        let mut stream = response.bytes_stream();
-
-        tokio::spawn(async {
+            let client = Client::new();
+            let response = client
+                .get(SSE_HTTP_URL)
+                .send()
+                .await?;
             
-            while let Some(item) = stream.next().await {
-                let bytes = item?;
-                let event: Value = serde_json::from_slice(&bytes)?;
-                let epoch_transistion = event["data"]["epoch_transition"].parse::<bool>();
+            let mut stream = response.bytes_stream();
+            
+            tokio::spawn(async {
 
-                if let Ok(true) == epoch_transistion {
-                    self.db.insert(slot);
+                let local_client = Client::new();
+                
+                while let Some(item) = stream.next().await {
+                    let bytes = item?;
+                    let event: Value = serde_json::from_slice(&bytes)?;
+
+                    let slot = event["data"]["slot"].parse::<u64>();
+
+                    let epoch_transistion = event["data"]["epoch_transition"].parse::<bool>();
+                    if let Ok(true) == epoch_transistion {
+                        self.db.insert(slot);
+                    }
+
+                    let block_info = local_client
+                            .get(
+                                format!("{QUICKNODE_BASE_URL}/eth/v1/beacon/headers/{:?}",slot)
+                            ).send();
+                    let attestations_info = local_client
+                            .get(
+                                format!("{QUICKNODE_BASE_URL}//eth/v1/beacon/blocks/{:?}/attestations",slot)
+                            ).send();
+                    let query_1 = format!(" ")
+                    let query_2 = format!(" ")
+                    
+                    self.db.insert(Block::from(event))    
+                    
+                    
                 }
+                
+            })
+        });
 
-                self.db.insert(Block::from(event))    
-
-            }
-            
-        })
+        OK(())
 
     }
 
